@@ -11,7 +11,7 @@
     video { width: 95%; max-width: 600px; height: auto; border:2px solid #333; border-radius:10px; }
     button { margin: 10px; padding: 10px 20px; font-size: 16px; }
     table { margin: 20px auto; border-collapse: collapse; width: 95%; max-width: 700px; }
-    th, td { border: 1px solid #ccc; padding: 6px; font-size: 14px; }
+    th, td { border: 1px solid #ccc; padding: 6px; font-size: 14px; text-align: center; }
     th { background: #f2f2f2; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
@@ -40,7 +40,7 @@
 
   <script>
     let registros = [], contador = 1, escaneoActual = '';
-    let empresa = '', telefono = '', imeiEquipo = '', imeiChip = '';
+    let filaActual = { empresa: '', telefono: '', imeiEquipo: '', imeiChip: '' };
 
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
@@ -63,32 +63,48 @@
 
             if (escaneoActual === 'equipo') {
               let empresaMatch = text.match(/.*SAC.*/i);
-              if (empresaMatch) empresa = empresaMatch[0].trim();
+              if (empresaMatch) filaActual.empresa = empresaMatch[0].trim();
 
               let telMatch = text.match(/9\d{8}/);
-              if (telMatch) telefono = telMatch[0];
+              if (telMatch) filaActual.telefono = telMatch[0];
 
               let imeiMatch = text.match(/\b\d{14,17}\b/g);
-              if (imeiMatch) imeiEquipo = imeiMatch[0];
+              if (imeiMatch) filaActual.imeiEquipo = imeiMatch[0];
+
             } else if (escaneoActual === 'chip') {
               let chipMatch = text.match(/89\d{16,20}/);
-              if (chipMatch) imeiChip = chipMatch[0];
+              if (chipMatch) filaActual.imeiChip = chipMatch[0];
             }
 
-            if (imeiEquipo && imeiChip) {
-              agregarRegistro();
-              empresa = ''; telefono = ''; imeiEquipo = ''; imeiChip = '';
-            }
+            actualizarTabla();
           });
       }, 'image/jpeg');
     }
 
-    function agregarRegistro() {
-      registros.push([contador, empresa, telefono, imeiEquipo, imeiChip]);
-      let fila = document.createElement("tr");
-      fila.innerHTML = `<td>${contador}</td><td>${empresa}</td><td>${telefono}</td><td>${imeiEquipo}</td><td>${imeiChip}</td>`;
-      document.getElementById("tablaIMEI").appendChild(fila);
-      contador++;
+    function actualizarTabla() {
+      let existente = document.getElementById("fila-" + contador);
+      if (!existente) {
+        let fila = document.createElement("tr");
+        fila.id = "fila-" + contador;
+        fila.innerHTML = `
+          <td>${contador}</td>
+          <td id="empresa-${contador}">${filaActual.empresa}</td>
+          <td id="telefono-${contador}">${filaActual.telefono}</td>
+          <td id="equipo-${contador}">${filaActual.imeiEquipo}</td>
+          <td id="chip-${contador}">${filaActual.imeiChip}</td>`;
+        document.getElementById("tablaIMEI").appendChild(fila);
+      } else {
+        document.getElementById("empresa-" + contador).innerText = filaActual.empresa;
+        document.getElementById("telefono-" + contador).innerText = filaActual.telefono;
+        document.getElementById("equipo-" + contador).innerText = filaActual.imeiEquipo;
+        document.getElementById("chip-" + contador).innerText = filaActual.imeiChip;
+      }
+
+      if (filaActual.imeiEquipo && filaActual.imeiChip) {
+        registros.push([contador, filaActual.empresa, filaActual.telefono, filaActual.imeiEquipo, filaActual.imeiChip]);
+        filaActual = { empresa: '', telefono: '', imeiEquipo: '', imeiChip: '' };
+        contador++;
+      }
     }
 
     function exportarExcel() {
@@ -99,7 +115,7 @@
     }
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('serviceWorker.js').then(() => console.log("SW listo"));
+      navigator.serviceWorker.register('serviceWorker.js');
     }
   </script>
 </body>
