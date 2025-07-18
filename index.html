@@ -1,0 +1,106 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IMEI OCR App</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    body { font-family:sans-serif; text-align:center; padding:10px; margin:0; }
+    video { width: 95%; max-width: 600px; height: auto; border:2px solid #333; border-radius:10px; }
+    button { margin: 10px; padding: 10px 20px; font-size: 16px; }
+    table { margin: 20px auto; border-collapse: collapse; width: 95%; max-width: 700px; }
+    th, td { border: 1px solid #ccc; padding: 6px; font-size: 14px; }
+    th { background: #f2f2f2; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+  <h2>Captura Automática IMEI</h2>
+  <video id="video" autoplay></video>
+  <br>
+  <button onclick="escaneoActual='equipo'; tomarFoto()">📷 Escanear EQUIPO</button>
+  <button onclick="escaneoActual='chip'; tomarFoto()">📲 Escanear CHIP</button>
+  <canvas id="canvas" style="display:none;"></canvas>
+  <p id="estado">Esperando escaneo...</p>
+
+  <table id="tablaIMEI">
+    <tr>
+      <th>#</th>
+      <th>Empresa</th>
+      <th>Teléfono</th>
+      <th>IMEI Equipo</th>
+      <th>IMEI Chip</th>
+    </tr>
+  </table>
+
+  <button onclick="exportarExcel()">📤 Exportar a Excel</button>
+
+  <script>
+    let registros = [], contador = 1, escaneoActual = '';
+    let empresa = '', telefono = '', imeiEquipo = '', imeiChip = '';
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const context = canvas.getContext('2d');
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(stream => { video.srcObject = stream; })
+      .catch(() => { document.getElementById("estado").innerText = "No se pudo acceder a la cámara."; });
+
+    function tomarFoto() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      document.getElementById("estado").innerText = "Procesando...";
+
+      canvas.toBlob(blob => {
+        Tesseract.recognize(blob, 'eng', { logger: m => console.log(m) })
+          .then(({ data: { text } }) => {
+            document.getElementById("estado").innerText = "Procesado.";
+
+            if (escaneoActual === 'equipo') {
+              let empresaMatch = text.match(/.*SAC.*/i);
+              if (empresaMatch) empresa = empresaMatch[0].trim();
+
+              let telMatch = text.match(/9\d{8}/);
+              if (telMatch) telefono = telMatch[0];
+
+              let imeiMatch = text.match(/\b\d{14,17}\b/g);
+              if (imeiMatch) imeiEquipo = imeiMatch[0];
+            } else if (escaneoActual === 'chip') {
+              let chipMatch = text.match(/89\d{16,20}/);
+              if (chipMatch) imeiChip = chipMatch[0];
+            }
+
+            if (imeiEquipo && imeiChip) {
+              agregarRegistro();
+              empresa = ''; telefono = ''; imeiEquipo = ''; imeiChip = '';
+            }
+          });
+      }, 'image/jpeg');
+    }
+
+    function agregarRegistro() {
+      registros.push([contador, empresa, telefono, imeiEquipo, imeiChip]);
+      let fila = document.createElement("tr");
+      fila.innerHTML = `<td>${contador}</td><td>${empresa}</td><td>${telefono}</td><td>${imeiEquipo}</td><td>${imeiChip}</td>`;
+      document.getElementById("tablaIMEI").appendChild(fila);
+      contador++;
+    }
+
+    function exportarExcel() {
+      let wb = XLSX.utils.book_new();
+      let ws = XLSX.utils.aoa_to_sheet([["#", "Empresa", "Teléfono", "IMEI Equipo", "IMEI Chip"], ...registros]);
+      XLSX.utils.book_append_sheet(wb, ws, "Registros");
+      XLSX.writeFile(wb, "IMEI_Registro.xlsx");
+    }
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('serviceWorker.js').then(() => console.log("SW listo"));
+    }
+  </script>
+</body>
+</html>
