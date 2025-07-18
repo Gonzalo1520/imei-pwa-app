@@ -14,40 +14,8 @@
     th, td { border: 1px solid #ccc; padding: 6px; font-size: 14px; text-align: center; }
     th { background: #f2f2f2; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js">
-    function sendToGoogleSheet(data) {
-      fetch("https://script.google.com/macros/s/AKfycbw7licD0upxsFXRyHqGxSwD6uyyBkqzpI6I_yF-VlDG8Gv3fOHeJkuryePrwZm06WvYyw/exec", {
-        method: "POST",
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(data)
-      }).then(() => {
-        console.log("✅ Enviado a Google Sheets correctamente.");
-      }).catch(error => {
-        console.error("❌ Error al enviar a Google Sheets:", error);
-      });
-    }
-
-</script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-    function sendToGoogleSheet(data) {
-      fetch("https://script.google.com/macros/s/AKfycbw7licD0upxsFXRyHqGxSwD6uyyBkqzpI6I_yF-VlDG8Gv3fOHeJkuryePrwZm06WvYyw/exec", {
-        method: "POST",
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(data)
-      }).then(() => {
-        console.log("✅ Enviado a Google Sheets correctamente.");
-      }).catch(error => {
-        console.error("❌ Error al enviar a Google Sheets:", error);
-      });
-    }
-
-</script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
   <h2>Escaneo IMEI Equipo / Chip</h2>
@@ -105,12 +73,25 @@
               if (imeiMatch) imeiEquipo = imeiMatch[0];
 
             } else if (escaneoActual === 'chip') {
+              let chipLine = text.match(/89\d{16,20}/);
+              if (!chipLine) {
+                let cleanedLines = text.split(/\n|\r/).map(l => l.trim()).filter(l => /^\d{16,22}$/.test(l));
+                if (cleanedLines.length > 0) {
+                  chipLine = [cleanedLines[0]];
+                }
+              }
+              if (chipLine) {
+                agregarFila("", "", "", chipLine[0]);
+                sendToGoogleSheet({ empresa: "", telefono: "", imeiEquipo: "", imeiChip: chipLine[0] });
+              } else {
+                document.getElementById("estado").innerText = "❌ No se encontró IMEI del chip.";
+              }
+    
               let chipMatch = text.match(/89\d{16,20}/);
               if (chipMatch) imeiChip = chipMatch[0];
             }
 
             agregarFila(empresa, telefono, imeiEquipo, imeiChip);
-            sendToGoogleSheet({ empresa, telefono, imeiEquipo, imeiChip });
           });
       }, 'image/jpeg');
     }
@@ -139,22 +120,6 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('serviceWorker.js');
     }
-  
-    function sendToGoogleSheet(data) {
-      fetch("https://script.google.com/macros/s/AKfycbw7licD0upxsFXRyHqGxSwD6uyyBkqzpI6I_yF-VlDG8Gv3fOHeJkuryePrwZm06WvYyw/exec", {
-        method: "POST",
-        mode: "no-cors",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(data)
-      }).then(() => {
-        console.log("✅ Enviado a Google Sheets correctamente.");
-      }).catch(error => {
-        console.error("❌ Error al enviar a Google Sheets:", error);
-      });
-    }
-
-</script>
+  </script>
 </body>
 </html>
