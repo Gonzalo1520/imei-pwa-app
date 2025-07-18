@@ -18,7 +18,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
-  <h2>Captura Automática IMEI</h2>
+  <h2>Captura IMEI (Equipo y Chip en filas separadas)</h2>
   <video id="video" autoplay></video>
   <br>
   <button onclick="escaneoActual='equipo'; tomarFoto()">📷 Escanear EQUIPO</button>
@@ -40,7 +40,6 @@
 
   <script>
     let registros = [], contador = 1, escaneoActual = '';
-    let filaActual = { empresa: '', telefono: '', imeiEquipo: '', imeiChip: '' };
 
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
@@ -62,49 +61,44 @@
             document.getElementById("estado").innerText = "Procesado.";
 
             if (escaneoActual === 'equipo') {
+              let empresa = "", telefono = "", imei = "";
+
               let empresaMatch = text.match(/.*SAC.*/i);
-              if (empresaMatch) filaActual.empresa = empresaMatch[0].trim();
+              if (empresaMatch) empresa = empresaMatch[0].trim();
 
               let telMatch = text.match(/9\d{8}/);
-              if (telMatch) filaActual.telefono = telMatch[0];
+              if (telMatch) telefono = telMatch[0];
 
               let imeiMatch = text.match(/\b\d{14,17}\b/g);
-              if (imeiMatch) filaActual.imeiEquipo = imeiMatch[0];
+              if (imeiMatch) imei = imeiMatch[0];
 
-            } else if (escaneoActual === 'chip') {
-              let chipMatch = text.match(/89\d{16,20}/);
-              if (chipMatch) filaActual.imeiChip = chipMatch[0];
+              agregarFila(empresa, telefono, imei, "");
             }
 
-            actualizarTabla();
+            if (escaneoActual === 'chip') {
+              let chipMatch = text.match(/89\d{16,20}/);
+              if (chipMatch) {
+                agregarFila("", "", "", chipMatch[0]);
+              } else {
+                document.getElementById("estado").innerText = "No se detectó IMEI del chip.";
+              }
+            }
           });
       }, 'image/jpeg');
     }
 
-    function actualizarTabla() {
-      let existente = document.getElementById("fila-" + contador);
-      if (!existente) {
-        let fila = document.createElement("tr");
-        fila.id = "fila-" + contador;
-        fila.innerHTML = `
-          <td>${contador}</td>
-          <td id="empresa-${contador}">${filaActual.empresa}</td>
-          <td id="telefono-${contador}">${filaActual.telefono}</td>
-          <td id="equipo-${contador}">${filaActual.imeiEquipo}</td>
-          <td id="chip-${contador}">${filaActual.imeiChip}</td>`;
-        document.getElementById("tablaIMEI").appendChild(fila);
-      } else {
-        document.getElementById("empresa-" + contador).innerText = filaActual.empresa;
-        document.getElementById("telefono-" + contador).innerText = filaActual.telefono;
-        document.getElementById("equipo-" + contador).innerText = filaActual.imeiEquipo;
-        document.getElementById("chip-" + contador).innerText = filaActual.imeiChip;
-      }
+    function agregarFila(empresa, telefono, imeiEquipo, imeiChip) {
+      let fila = document.createElement("tr");
+      fila.innerHTML = `
+        <td>${contador}</td>
+        <td>${empresa}</td>
+        <td>${telefono}</td>
+        <td>${imeiEquipo}</td>
+        <td>${imeiChip}</td>`;
+      document.getElementById("tablaIMEI").appendChild(fila);
 
-      if (filaActual.imeiEquipo && filaActual.imeiChip) {
-        registros.push([contador, filaActual.empresa, filaActual.telefono, filaActual.imeiEquipo, filaActual.imeiChip]);
-        filaActual = { empresa: '', telefono: '', imeiEquipo: '', imeiChip: '' };
-        contador++;
-      }
+      registros.push([contador, empresa, telefono, imeiEquipo, imeiChip]);
+      contador++;
     }
 
     function exportarExcel() {
