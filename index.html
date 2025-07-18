@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IMEI OCR App Pro</title>
+  <title>IMEI Scanner - Versión Robusta</title>
   <link rel="manifest" href="manifest.json" />
   <style>
     * { box-sizing: border-box; }
@@ -107,6 +107,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      flex-direction: column;
     }
     .status.processing { 
       background: rgba(255, 193, 7, 0.2); 
@@ -176,50 +177,36 @@
       font-family: 'Courier New', monospace;
       font-size: 12px;
       text-align: left;
-      max-height: 300px;
+      max-height: 400px;
       overflow-y: auto;
       border: 1px solid rgba(255,255,255,0.2);
     }
-    .preview-container {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 15px;
-      margin: 20px 0;
-    }
-    .preview-item {
+    .manual-input {
       background: rgba(255,255,255,0.1);
-      padding: 10px;
+      padding: 20px;
       border-radius: 10px;
+      margin: 20px 0;
       border: 1px solid rgba(255,255,255,0.2);
     }
-    .preview-item h4 {
-      margin: 0 0 10px 0;
-      font-size: 14px;
-    }
-    .preview-item canvas {
+    .manual-input input {
       width: 100%;
-      height: auto;
+      max-width: 300px;
+      padding: 12px;
+      border: none;
       border-radius: 5px;
+      margin: 5px;
+      font-size: 16px;
     }
-    .scan-tips {
+    .manual-input h4 {
+      margin: 0 0 15px 0;
+      color: #4CAF50;
+    }
+    .retry-panel {
       background: rgba(255,255,255,0.1);
       padding: 15px;
       border-radius: 10px;
-      margin: 20px 0;
-      border-left: 4px solid #4CAF50;
-      text-align: left;
-    }
-    .scan-tips h4 {
-      margin: 0 0 10px 0;
-      color: #4CAF50;
-    }
-    .scan-tips ul {
-      margin: 0;
-      padding-left: 20px;
-    }
-    .scan-tips li {
-      margin: 5px 0;
-      font-size: 14px;
+      margin: 15px 0;
+      border: 1px solid rgba(255,255,255,0.2);
     }
     @media (max-width: 600px) {
       .scan-buttons { flex-direction: column; align-items: center; }
@@ -227,12 +214,10 @@
       th, td { font-size: 12px; padding: 8px 4px; }
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
   <div class="container">
-    <h2>🔍 IMEI Scanner Pro</h2>
+    <h2>🔍 IMEI Scanner - Versión Robusta</h2>
     
     <div class="camera-container">
       <video id="video" autoplay playsinline></video>
@@ -258,9 +243,22 @@
       </div>
     </div>
 
-    <div class="scan-tips" id="scanTips" style="display:none;">
-      <h4>💡 Consejos para mejor escaneo:</h4>
-      <ul id="tipsList"></ul>
+    <div class="retry-panel" id="retryPanel" style="display:none;">
+      <h4>🔄 Reintento Automático</h4>
+      <p>Probando diferentes configuraciones OCR...</p>
+      <div id="retryStatus"></div>
+    </div>
+
+    <div class="manual-input" id="manualInput" style="display:none;">
+      <h4>✍️ Entrada Manual</h4>
+      <p>Si el OCR no funciona, puedes ingresar manualmente:</p>
+      <input type="text" id="manualEmpresa" placeholder="Empresa" />
+      <input type="text" id="manualTelefono" placeholder="Teléfono (9 dígitos)" />
+      <input type="text" id="manualIMEI" placeholder="IMEI (15 dígitos)" />
+      <input type="text" id="manualChip" placeholder="Chip/ICCID (18-20 dígitos)" />
+      <br><br>
+      <button class="btn-primary" onclick="guardarManual()">💾 Guardar</button>
+      <button class="btn-secondary" onclick="ocultarManual()">❌ Cancelar</button>
     </div>
 
     <canvas id="canvas" style="display:none;"></canvas>
@@ -268,7 +266,6 @@
     <div id="debugPanel" class="debug-panel" style="display:none;">
       <h4>🔧 Panel de Debug</h4>
       <div id="debugInfo"></div>
-      <div class="preview-container" id="previewContainer"></div>
     </div>
 
     <table id="tablaIMEI">
@@ -292,16 +289,22 @@
       <button class="btn-secondary" onclick="limpiarTabla()">
         🗑️ Limpiar
       </button>
+      <button class="btn-debug" onclick="mostrarManual()">
+        ✍️ Entrada Manual
+      </button>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script>
     let registros = [];
     let contador = 1;
     let escaneoActual = '';
     let debugMode = false;
     let isProcessing = false;
-    let worker = null;
+    let intentoActual = 0;
+    let maxIntentos = 3;
 
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
@@ -310,20 +313,32 @@
     const progressBar = document.getElementById('progressBar');
     const progressFill = document.getElementById('progressFill');
 
-    // Inicializar Tesseract Worker
-    async function initTesseract() {
-      try {
-        worker = await Tesseract.createWorker('eng');
-        await worker.setParameters({
-          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.-',
+    // Configuraciones OCR para diferentes intentos
+    const configsOCR = [
+      {
+        name: "Configuración Estándar",
+        options: {
+          logger: m => console.log(m),
+          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ ',
           tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
-        });
-        updateStatus('✅ Sistema listo', 'success');
-      } catch (error) {
-        updateStatus('❌ Error inicializando OCR', 'error');
-        console.error('Error init Tesseract:', error);
+        }
+      },
+      {
+        name: "Configuración Números",
+        options: {
+          logger: m => console.log(m),
+          tessedit_char_whitelist: '0123456789',
+          tessedit_pageseg_mode: Tesseract.PSM.SINGLE_WORD,
+        }
+      },
+      {
+        name: "Configuración Libre",
+        options: {
+          logger: m => console.log(m),
+          tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+        }
       }
-    }
+    ];
 
     // Inicializar cámara
     async function initCamera() {
@@ -331,15 +346,17 @@
         const constraints = {
           video: {
             facingMode: "environment",
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
           }
         };
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         video.srcObject = stream;
+        updateStatus('✅ Cámara lista', 'success');
         return true;
       } catch (error) {
-        updateStatus('❌ No se pudo acceder a la cámara', 'error');
+        updateStatus('❌ Error de cámara. Usando entrada manual.', 'error');
+        mostrarManual();
         console.error('Error camera:', error);
         return false;
       }
@@ -361,34 +378,54 @@
     function toggleDebug() {
       debugMode = !debugMode;
       document.getElementById('debugPanel').style.display = debugMode ? 'block' : 'none';
-      document.getElementById('scanTips').style.display = debugMode ? 'block' : 'none';
       document.getElementById('btnDebug').textContent = debugMode ? '🔍 Debug ON' : '🔍 Debug OFF';
     }
 
-    function mostrarTips(tipo) {
-      const tips = {
-        equipo: [
-          'Coloca el equipo sobre una superficie plana',
-          'Asegúrate de que la etiqueta esté bien iluminada',
-          'Mantén la cámara estable',
-          'La etiqueta debe estar dentro del marco verde'
-        ],
-        chip: [
-          'Usa buena iluminación directa',
-          'Acerca la cámara al chip/SIM',
-          'Evita reflejos en la superficie del chip',
-          'Mantén el chip completamente plano',
-          'Los números deben verse nítidos'
-        ]
-      };
+    function mostrarManual() {
+      document.getElementById('manualInput').style.display = 'block';
+      // Limpiar campos
+      document.getElementById('manualEmpresa').value = '';
+      document.getElementById('manualTelefono').value = '';
+      document.getElementById('manualIMEI').value = '';
+      document.getElementById('manualChip').value = '';
+    }
+
+    function ocultarManual() {
+      document.getElementById('manualInput').style.display = 'none';
+    }
+
+    function guardarManual() {
+      const empresa = document.getElementById('manualEmpresa').value.trim();
+      const telefono = document.getElementById('manualTelefono').value.trim();
+      const imeiEquipo = document.getElementById('manualIMEI').value.trim();
+      const imeiChip = document.getElementById('manualChip').value.trim();
+
+      // Validaciones básicas
+      if (telefono && !/^9\d{8}$/.test(telefono)) {
+        alert('El teléfono debe tener 9 dígitos y empezar con 9');
+        return;
+      }
       
-      const tipsList = document.getElementById('tipsList');
-      tipsList.innerHTML = '';
-      tips[tipo].forEach(tip => {
-        const li = document.createElement('li');
-        li.textContent = tip;
-        tipsList.appendChild(li);
-      });
+      if (imeiEquipo && !/^\d{14,17}$/.test(imeiEquipo)) {
+        alert('El IMEI debe tener entre 14 y 17 dígitos');
+        return;
+      }
+      
+      if (imeiChip && !/^\d{18,22}$/.test(imeiChip)) {
+        alert('El ICCID debe tener entre 18 y 22 dígitos');
+        return;
+      }
+
+      if (!empresa && !telefono && !imeiEquipo && !imeiChip) {
+        alert('Debes ingresar al menos un campo');
+        return;
+      }
+
+      agregarRegistro(empresa, telefono, imeiEquipo, imeiChip);
+      enviarAGoogleSheet({ empresa, telefono, imeiEquipo, imeiChip });
+      
+      updateStatus('✅ Registro guardado manualmente', 'success');
+      ocultarManual();
     }
 
     async function iniciarEscaneo(tipo) {
@@ -396,7 +433,7 @@
       
       escaneoActual = tipo;
       isProcessing = true;
-      mostrarTips(tipo);
+      intentoActual = 0;
       
       // Deshabilitar botones
       document.getElementById('btnEquipo').disabled = true;
@@ -405,48 +442,18 @@
       updateStatus('📸 Capturando imagen...', 'processing', true);
       updateProgress(20);
       
-      // Esperar un momento para que el usuario se prepare
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
       try {
         await tomarFoto();
       } catch (error) {
         updateStatus('❌ Error en el escaneo', 'error');
         console.error('Error escaneo:', error);
+        mostrarManual();
       } finally {
         isProcessing = false;
         document.getElementById('btnEquipo').disabled = false;
         document.getElementById('btnChip').disabled = false;
+        document.getElementById('retryPanel').style.display = 'none';
       }
-    }
-
-    function aplicarFiltros(canvas, context, tipo) {
-      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-      
-      // Filtro específico según el tipo
-      if (tipo === 'chip') {
-        // Para chips: mayor contraste y enfoque en números
-        for (let i = 0; i < data.length; i += 4) {
-          const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-          const contrast = gray > 140 ? 255 : gray < 60 ? 0 : gray;
-          data[i] = contrast;
-          data[i + 1] = contrast;
-          data[i + 2] = contrast;
-        }
-      } else {
-        // Para equipos: procesamiento más suave
-        for (let i = 0; i < data.length; i += 4) {
-          const gray = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-          const enhanced = gray > 128 ? Math.min(255, gray * 1.2) : Math.max(0, gray * 0.8);
-          data[i] = enhanced;
-          data[i + 1] = enhanced;
-          data[i + 2] = enhanced;
-        }
-      }
-      
-      context.putImageData(imageData, 0, 0);
-      return canvas;
     }
 
     async function tomarFoto() {
@@ -456,79 +463,79 @@
       
       updateProgress(40);
       
-      // Crear múltiples versiones procesadas
-      const originalCanvas = canvas.cloneNode();
-      const originalContext = originalCanvas.getContext('2d');
-      originalContext.drawImage(canvas, 0, 0);
-      
-      const processedCanvas = aplicarFiltros(canvas, context, escaneoActual);
-      
-      updateStatus('🧠 Procesando con OCR...', 'processing', true);
-      updateProgress(60);
-      
-      // Mostrar previews si está en debug
-      if (debugMode) {
-        mostrarPreviews(originalCanvas, processedCanvas);
+      // Intentar múltiples configuraciones OCR
+      for (let i = 0; i < configsOCR.length; i++) {
+        intentoActual = i + 1;
+        
+        document.getElementById('retryPanel').style.display = 'block';
+        document.getElementById('retryStatus').textContent = 
+          `Intento ${intentoActual}/${configsOCR.length}: ${configsOCR[i].name}`;
+        
+        updateStatus(`🧠 OCR Intento ${intentoActual}/${configsOCR.length}...`, 'processing', true);
+        updateProgress(40 + (i * 20));
+        
+        try {
+          const resultado = await procesarConOCR(configsOCR[i]);
+          if (resultado.exitoso) {
+            updateProgress(100);
+            return; // Salir si fue exitoso
+          }
+        } catch (error) {
+          console.error(`Error en intento ${intentoActual}:`, error);
+          if (debugMode) {
+            mostrarDebugInfo(`Error intento ${intentoActual}: ${error.message}`, 0);
+          }
+        }
       }
       
+      // Si llegamos aquí, todos los intentos fallaron
+      updateStatus('❌ OCR falló. Usa entrada manual.', 'error');
+      mostrarManual();
+    }
+
+    async function procesarConOCR(config) {
       try {
         const blob = await new Promise(resolve => {
-          processedCanvas.toBlob(resolve, 'image/jpeg', 0.95);
+          canvas.toBlob(resolve, 'image/jpeg', 0.9);
         });
         
-        updateProgress(80);
-        
-        const { data: { text, confidence } } = await worker.recognize(blob);
-        
-        updateProgress(100);
+        // Usar la API directa de Tesseract sin worker persistente
+        const { data: { text, confidence } } = await Tesseract.recognize(
+          blob, 
+          'eng', 
+          config.options
+        );
         
         if (debugMode) {
-          mostrarDebugInfo(text, confidence);
+          mostrarDebugInfo(text, confidence, config.name);
         }
+        
+        // Procesar según el tipo
+        let resultado = { exitoso: false };
         
         if (escaneoActual === 'equipo') {
-          await procesarEquipo(text);
+          resultado = await procesarEquipo(text);
         } else if (escaneoActual === 'chip') {
-          await procesarChip(text);
+          resultado = await procesarChip(text);
         }
         
+        return resultado;
+        
       } catch (error) {
-        updateStatus('❌ Error en OCR: ' + error.message, 'error');
         console.error('Error OCR:', error);
+        return { exitoso: false, error: error.message };
       }
     }
 
-    function mostrarPreviews(original, processed) {
-      const container = document.getElementById('previewContainer');
-      container.innerHTML = '';
-      
-      const createPreview = (canvas, title) => {
-        const item = document.createElement('div');
-        item.className = 'preview-item';
-        item.innerHTML = `<h4>${title}</h4>`;
-        
-        const previewCanvas = document.createElement('canvas');
-        previewCanvas.width = 200;
-        previewCanvas.height = 150;
-        const previewContext = previewCanvas.getContext('2d');
-        previewContext.drawImage(canvas, 0, 0, 200, 150);
-        
-        item.appendChild(previewCanvas);
-        container.appendChild(item);
-      };
-      
-      createPreview(original, 'Original');
-      createPreview(processed, 'Procesada');
-    }
-
-    function mostrarDebugInfo(text, confidence) {
+    function mostrarDebugInfo(text, confidence, configName = '') {
       const debugInfo = document.getElementById('debugInfo');
-      debugInfo.innerHTML = `
-        <p><strong>Confianza OCR:</strong> ${confidence.toFixed(2)}%</p>
+      const timestamp = new Date().toLocaleTimeString();
+      debugInfo.innerHTML += `
+        <hr>
+        <p><strong>[${timestamp}] ${configName}</strong></p>
+        <p><strong>Confianza:</strong> ${confidence ? confidence.toFixed(2) + '%' : 'N/A'}</p>
         <p><strong>Texto detectado:</strong></p>
         <pre>${text}</pre>
-        <p><strong>Líneas limpias:</strong></p>
-        <pre>${text.split('\n').map(line => line.trim()).filter(line => line.length > 0).join('\n')}</pre>
       `;
     }
 
@@ -539,13 +546,15 @@
         imei: extraerIMEI(text)
       };
       
-      if (resultados.imei) {
+      // Considerar exitoso si encontramos al menos IMEI o teléfono
+      if (resultados.imei || resultados.telefono) {
         agregarRegistro(resultados.empresa, resultados.telefono, resultados.imei, '');
         await enviarAGoogleSheet({ ...resultados, imeiChip: '' });
-        updateStatus(`✅ IMEI Equipo: ${resultados.imei}`, 'success');
-      } else {
-        updateStatus('❌ No se encontró IMEI del equipo', 'error');
+        updateStatus(`✅ Datos: ${resultados.imei ? 'IMEI: ' + resultados.imei : 'Tel: ' + resultados.telefono}`, 'success');
+        return { exitoso: true };
       }
+      
+      return { exitoso: false };
     }
 
     async function procesarChip(text) {
@@ -555,9 +564,10 @@
         agregarRegistro('', '', '', iccid);
         await enviarAGoogleSheet({ empresa: '', telefono: '', imeiEquipo: '', imeiChip: iccid });
         updateStatus(`✅ ICCID: ${iccid}`, 'success');
-      } else {
-        updateStatus('❌ No se encontró ICCID del chip', 'error');
+        return { exitoso: true };
       }
+      
+      return { exitoso: false };
     }
 
     function extraerEmpresa(text) {
@@ -565,12 +575,14 @@
         /.*SAC.*/i,
         /.*EMPRESA.*/i,
         /.*CORP.*/i,
-        /.*S\.A\.C\.*/i
+        /.*S\.A\.C\.*/i,
+        /.*COMPANY.*/i,
+        /.*TELECOMUNICACIONES.*/i
       ];
       
       for (const pattern of patterns) {
         const match = text.match(pattern);
-        if (match) return match[0].trim();
+        if (match) return match[0].trim().substring(0, 50); // Limitar longitud
       }
       return '';
     }
@@ -583,42 +595,61 @@
       ];
       
       for (const pattern of patterns) {
-        const match = text.match(pattern);
-        if (match) return match[0].replace(/\D/g, '').slice(-9);
+        const matches = text.match(pattern);
+        if (matches) {
+          const tel = matches[0].replace(/\D/g, '');
+          return tel.length >= 9 ? tel.slice(-9) : tel;
+        }
       }
       return '';
     }
 
     function extraerIMEI(text) {
-      // Buscar exactamente 15 dígitos
+      // Primero buscar exactamente 15 dígitos
       const imei15 = text.match(/\b\d{15}\b/g);
       if (imei15) return imei15[0];
       
-      // Buscar 14-17 dígitos como fallback
+      // Luego 14-17 dígitos
       const imeiRange = text.match(/\b\d{14,17}\b/g);
-      if (imeiRange) return imeiRange[0];
+      if (imeiRange) {
+        // Filtrar números que parezcan IMEI (no todos ceros, no repetitivos)
+        for (const imei of imeiRange) {
+          if (!/^0+$/.test(imei) && !/^(\d)\1+$/.test(imei)) {
+            return imei;
+          }
+        }
+      }
       
       return '';
     }
 
     function extraerICCID(text) {
       // Limpiar texto
-      const cleanText = text.replace(/\s+/g, '');
+      const cleanText = text.replace(/\s+/g, '').replace(/[^\d]/g, '');
       
       // Buscar ICCID estándar (empieza con 89)
       const iccidPattern = cleanText.match(/89\d{17,20}/);
       if (iccidPattern) return iccidPattern[0];
       
-      // Buscar secuencias largas de números
+      // Buscar secuencias largas de números (18-22 dígitos)
       const longNumbers = cleanText.match(/\d{18,22}/g);
-      if (longNumbers) return longNumbers[0];
+      if (longNumbers) {
+        for (const num of longNumbers) {
+          // Filtrar números que no sean todos iguales
+          if (!/^(\d)\1+$/.test(num)) {
+            return num;
+          }
+        }
+      }
       
-      // Buscar por líneas
-      const lines = text.split(/\n|\r/).map(l => l.trim().replace(/\s+/g, ''));
+      // Buscar por líneas en texto original
+      const lines = text.split(/\n|\r/).map(l => l.trim());
       for (const line of lines) {
         const cleanLine = line.replace(/[^\d]/g, '');
         if (cleanLine.length >= 18 && cleanLine.length <= 22) {
-          return cleanLine;
+          if (!/^(\d)\1+$/.test(cleanLine)) {
+            return cleanLine;
+          }
         }
       }
       
@@ -687,13 +718,26 @@
     // Inicialización
     window.addEventListener('load', async () => {
       await initCamera();
-      await initTesseract();
+      updateStatus('📷 Listo para escanear', 'idle');
     });
 
     // Service Worker
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('serviceWorker.js');
+      navigator.serviceWorker.register('serviceWorker.js').catch(e => console.log('SW error:', e));
     }
+
+    // Manejo de errores globales
+    window.addEventListener('error', function(e) {
+      console.error('Error global:', e.error);
+      updateStatus('❌ Error del sistema. Usa entrada manual.', 'error');
+      mostrarManual();
+    });
+
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('Promise rechazada:', e.reason);
+      updateStatus('❌ Error de conexión. Usa entrada manual.', 'error');
+      mostrarManual();
+    });
   </script>
 </body>
 </html>
