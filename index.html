@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -55,15 +54,12 @@
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       document.getElementById("estado").innerText = "Procesando...";
 
-      canvas.toBlob(blob => {
-      // Reiniciar campos temporales
       let empresa = "", telefono = "", imeiEquipo = "", imeiChip = "";
-    
+
+      canvas.toBlob(blob => {
         Tesseract.recognize(blob, 'eng', { logger: m => console.log(m) })
           .then(({ data: { text } }) => {
             document.getElementById("estado").innerText = "Procesado.";
-
-            let empresa = "", telefono = "", imeiEquipo = "", imeiChip = "";
 
             if (escaneoActual === 'equipo') {
               let empresaMatch = text.match(/.*SAC.*/i);
@@ -75,6 +71,9 @@
               let imeiMatch = text.match(/\b\d{14,17}\b/g);
               if (imeiMatch) imeiEquipo = imeiMatch[0];
 
+              agregarFila(empresa, telefono, imeiEquipo, "");
+              sendToGoogleSheet({ empresa, telefono, imeiEquipo, imeiChip: "" });
+
             } else if (escaneoActual === 'chip') {
               let chipLine = text.match(/89\d{16,20}/);
               if (!chipLine) {
@@ -84,17 +83,13 @@
                 }
               }
               if (chipLine) {
-                agregarFila("", "", "", chipLine[0]);
-                sendToGoogleSheet({ empresa: "", telefono: "", imeiEquipo: "", imeiChip: chipLine[0] });
+                imeiChip = chipLine[0];
+                agregarFila("", "", "", imeiChip);
+                sendToGoogleSheet({ empresa: "", telefono: "", imeiEquipo: "", imeiChip });
               } else {
                 document.getElementById("estado").innerText = "❌ No se encontró IMEI del chip.";
               }
-    
-              let chipMatch = text.match(/89\d{16,20}/);
-              if (chipMatch) imeiChip = chipMatch[0];
             }
-
-            agregarFila(empresa, telefono, imeiEquipo, imeiChip);
           });
       }, 'image/jpeg');
     }
@@ -111,6 +106,21 @@
 
       registros.push([contador, empresa, telefono, imeiEquipo, imeiChip]);
       contador++;
+    }
+
+    function sendToGoogleSheet(data) {
+      fetch("https://script.google.com/macros/s/AKfycbw7licD0upxsFXRyHqGxSwD6uyyBkqzpI6I_yF-VlDG8Gv3fOHeJkuryePrwZm06WvYyw/exec", {
+        method: "POST",
+        mode: "no-cors",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+      }).then(() => {
+        console.log("✅ Enviado a Google Sheets correctamente.");
+      }).catch(error => {
+        console.error("❌ Error al enviar a Google Sheets:", error);
+      });
     }
 
     function exportarExcel() {
