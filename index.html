@@ -18,7 +18,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
-  <h2>Captura IMEI (Equipo y Chip en filas separadas)</h2>
+  <h2>Escaneo IMEI Equipo / Chip</h2>
   <video id="video" autoplay></video>
   <br>
   <button onclick="escaneoActual='equipo'; tomarFoto()">📷 Escanear EQUIPO</button>
@@ -60,9 +60,9 @@
           .then(({ data: { text } }) => {
             document.getElementById("estado").innerText = "Procesado.";
 
-            if (escaneoActual === 'equipo') {
-              let empresa = "", telefono = "", imei = "";
+            let empresa = "", telefono = "", imeiEquipo = "", imeiChip = "";
 
+            if (escaneoActual === 'equipo') {
               let empresaMatch = text.match(/.*SAC.*/i);
               if (empresaMatch) empresa = empresaMatch[0].trim();
 
@@ -70,19 +70,14 @@
               if (telMatch) telefono = telMatch[0];
 
               let imeiMatch = text.match(/\b\d{14,17}\b/g);
-              if (imeiMatch) imei = imeiMatch[0];
+              if (imeiMatch) imeiEquipo = imeiMatch[0];
 
-              agregarFila(empresa, telefono, imei, "");
-            }
-
-            if (escaneoActual === 'chip') {
+            } else if (escaneoActual === 'chip') {
               let chipMatch = text.match(/89\d{16,20}/);
-              if (chipMatch) {
-                agregarFila("", "", "", chipMatch[0]);
-              } else {
-                document.getElementById("estado").innerText = "No se detectó IMEI del chip.";
-              }
+              if (chipMatch) imeiChip = chipMatch[0];
             }
+
+            agregarFila(empresa, telefono, imeiEquipo, imeiChip);
           });
       }, 'image/jpeg');
     }
