@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IMEI Scanner - Versión Robusta</title>
+  <title>IMEI Scanner - Versión Corregida</title>
   <link rel="manifest" href="manifest.json" />
   <style>
     * { box-sizing: border-box; }
@@ -208,6 +208,25 @@
       margin: 15px 0;
       border: 1px solid rgba(255,255,255,0.2);
     }
+    .data-preview {
+      background: rgba(255,255,255,0.1);
+      padding: 15px;
+      border-radius: 10px;
+      margin: 15px 0;
+      border: 1px solid rgba(255,255,255,0.2);
+      text-align: left;
+    }
+    .data-preview h4 {
+      margin: 0 0 10px 0;
+      color: #4CAF50;
+    }
+    .data-preview pre {
+      background: rgba(0,0,0,0.3);
+      padding: 10px;
+      border-radius: 5px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
     @media (max-width: 600px) {
       .scan-buttons { flex-direction: column; align-items: center; }
       button { width: 200px; }
@@ -217,7 +236,7 @@
 </head>
 <body>
   <div class="container">
-    <h2>🔍 IMEI Scanner - Versión Robusta</h2>
+    <h2>🔍 IMEI Scanner - Versión Corregida</h2>
     
     <div class="camera-container">
       <video id="video" autoplay playsinline></video>
@@ -249,6 +268,11 @@
       <div id="retryStatus"></div>
     </div>
 
+    <div class="data-preview" id="dataPreview" style="display:none;">
+      <h4>📋 Vista Previa de Datos</h4>
+      <div id="previewContent"></div>
+    </div>
+
     <div class="manual-input" id="manualInput" style="display:none;">
       <h4>✍️ Entrada Manual</h4>
       <p>Si el OCR no funciona, puedes ingresar manualmente:</p>
@@ -276,7 +300,6 @@
           <th>Teléfono</th>
           <th>IMEI Equipo</th>
           <th>IMEI Chip</th>
-          <th>Fecha</th>
         </tr>
       </thead>
       <tbody id="tablaBody"></tbody>
@@ -291,6 +314,9 @@
       </button>
       <button class="btn-debug" onclick="mostrarManual()">
         ✍️ Entrada Manual
+      </button>
+      <button class="btn-debug" onclick="mostrarDatos()">
+        📋 Ver Datos
       </button>
     </div>
   </div>
@@ -394,6 +420,19 @@
       document.getElementById('manualInput').style.display = 'none';
     }
 
+    function mostrarDatos() {
+      const preview = document.getElementById('dataPreview');
+      const content = document.getElementById('previewContent');
+      
+      if (registros.length === 0) {
+        content.innerHTML = '<p>No hay datos registrados</p>';
+      } else {
+        content.innerHTML = '<pre>' + JSON.stringify(registros, null, 2) + '</pre>';
+      }
+      
+      preview.style.display = preview.style.display === 'none' ? 'block' : 'none';
+    }
+
     function guardarManual() {
       const empresa = document.getElementById('manualEmpresa').value.trim();
       const telefono = document.getElementById('manualTelefono').value.trim();
@@ -421,6 +460,9 @@
         return;
       }
 
+      // Debug: mostrar lo que se va a guardar
+      console.log('Guardando manual:', { empresa, telefono, imeiEquipo, imeiChip });
+      
       agregarRegistro(empresa, telefono, imeiEquipo, imeiChip);
       enviarAGoogleSheet({ empresa, telefono, imeiEquipo, imeiChip });
       
@@ -546,10 +588,22 @@
         imei: extraerIMEI(text)
       };
       
+      // Debug: mostrar resultados extraídos
+      console.log('Resultados extraídos del equipo:', resultados);
+      
       // Considerar exitoso si encontramos al menos IMEI o teléfono
       if (resultados.imei || resultados.telefono) {
+        console.log('Guardando datos del equipo:', resultados);
+        
+        // Asegurarse de que imeiEquipo se pasa correctamente
         agregarRegistro(resultados.empresa, resultados.telefono, resultados.imei, '');
-        await enviarAGoogleSheet({ ...resultados, imeiChip: '' });
+        await enviarAGoogleSheet({ 
+          empresa: resultados.empresa, 
+          telefono: resultados.telefono, 
+          imeiEquipo: resultados.imei,  // Asegurarse de que se pasa como imeiEquipo
+          imeiChip: '' 
+        });
+        
         updateStatus(`✅ Datos: ${resultados.imei ? 'IMEI: ' + resultados.imei : 'Tel: ' + resultados.telefono}`, 'success');
         return { exitoso: true };
       }
@@ -560,9 +614,19 @@
     async function procesarChip(text) {
       const iccid = extraerICCID(text);
       
+      console.log('ICCID extraído:', iccid);
+      
       if (iccid) {
+        console.log('Guardando datos del chip:', iccid);
+        
         agregarRegistro('', '', '', iccid);
-        await enviarAGoogleSheet({ empresa: '', telefono: '', imeiEquipo: '', imeiChip: iccid });
+        await enviarAGoogleSheet({ 
+          empresa: '', 
+          telefono: '', 
+          imeiEquipo: '', 
+          imeiChip: iccid 
+        });
+        
         updateStatus(`✅ ICCID: ${iccid}`, 'success');
         return { exitoso: true };
       }
@@ -607,19 +671,25 @@
     function extraerIMEI(text) {
       // Primero buscar exactamente 15 dígitos
       const imei15 = text.match(/\b\d{15}\b/g);
-      if (imei15) return imei15[0];
+      if (imei15) {
+        console.log('IMEI 15 dígitos encontrado:', imei15[0]);
+        return imei15[0];
+      }
       
       // Luego 14-17 dígitos
       const imeiRange = text.match(/\b\d{14,17}\b/g);
       if (imeiRange) {
+        console.log('IMEI rango encontrado:', imeiRange);
         // Filtrar números que parezcan IMEI (no todos ceros, no repetitivos)
         for (const imei of imeiRange) {
           if (!/^0+$/.test(imei) && !/^(\d)\1+$/.test(imei)) {
+            console.log('IMEI válido encontrado:', imei);
             return imei;
           }
         }
       }
       
+      console.log('No se encontró IMEI válido');
       return '';
     }
 
@@ -657,20 +727,30 @@
     }
 
     function agregarRegistro(empresa, telefono, imeiEquipo, imeiChip) {
-      const fecha = new Date().toLocaleString('es-PE');
+      // Debug: mostrar lo que se está agregando
+      console.log('Agregando registro:', { contador, empresa, telefono, imeiEquipo, imeiChip });
+      
       const fila = document.createElement('tr');
       fila.innerHTML = `
         <td>${contador}</td>
-        <td>${empresa}</td>
-        <td>${telefono}</td>
-        <td>${imeiEquipo}</td>
-        <td>${imeiChip}</td>
-        <td>${fecha}</td>
+        <td>${empresa || '-'}</td>
+        <td>${telefono || '-'}</td>
+        <td>${imeiEquipo || '-'}</td>
+        <td>${imeiChip || '-'}</td>
       `;
       document.getElementById('tablaBody').appendChild(fila);
       
-      registros.push([contador, empresa, telefono, imeiEquipo, imeiChip, fecha]);
+      // Guardamos la fecha para el Excel
+      const fecha = new Date().toLocaleString('es-PE');
+      const registro = [contador, empresa || '', telefono || '', imeiEquipo || '', imeiChip || '', fecha];
+      
+      console.log('Registro completo que se guarda:', registro);
+      
+      registros.push(registro);
       contador++;
+      
+      // Debug: mostrar array completo
+      console.log('Array registros actualizado:', registros);
     }
 
     async function enviarAGoogleSheet(data) {
